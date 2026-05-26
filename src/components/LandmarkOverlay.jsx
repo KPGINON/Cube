@@ -23,26 +23,32 @@ const bones = [
 ];
 
 export default function LandmarkOverlay({ landmarks }) {
+  const hands = Array.isArray(landmarks?.[0]) ? landmarks : landmarks?.length ? [landmarks] : [];
+
   return (
     <svg className="landmark-overlay" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
-      {bones.map(([from, to]) => {
-        const a = landmarks[from];
-        const b = landmarks[to];
-        if (!a || !b) return null;
-        return (
-          <line
-            key={`${from}-${to}`}
-            x1={1 - a.x}
-            y1={a.y}
-            x2={1 - b.x}
-            y2={b.y}
-            vectorEffect="non-scaling-stroke"
-          />
-        );
-      })}
-      {landmarks.map((point, index) => (
-        <circle key={index} cx={1 - point.x} cy={point.y} r="0.012" vectorEffect="non-scaling-stroke" />
-      ))}
+      {hands.flatMap((hand, handIndex) =>
+        bones.map(([from, to]) => {
+          const a = hand[from];
+          const b = hand[to];
+          if (!a || !b) return null;
+          return (
+            <line
+              key={`${handIndex}-${from}-${to}`}
+              x1={1 - a.x}
+              y1={a.y}
+              x2={1 - b.x}
+              y2={b.y}
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        }),
+      )}
+      {hands.flatMap((hand, handIndex) =>
+        hand.map((point, index) => (
+          <circle key={`${handIndex}-${index}`} cx={1 - point.x} cy={point.y} r="0.012" vectorEffect="non-scaling-stroke" />
+        )),
+      )}
     </svg>
   );
 }

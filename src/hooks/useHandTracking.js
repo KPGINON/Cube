@@ -23,6 +23,8 @@ const baseMetrics = {
   pointX: 0,
   pointY: 0,
   pointZ: 0,
+  handCount: 0,
+  handSpan: 0,
   confidence: 0,
 };
 
@@ -81,7 +83,7 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
           delegate: 'GPU',
         },
         runningMode: 'VIDEO',
-        numHands: 1,
+        numHands: 2,
         minHandDetectionConfidence: 0.45,
         minHandPresenceConfidence: 0.45,
         minTrackingConfidence: 0.45,
@@ -138,16 +140,16 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
           if (currentVideoTime !== lastVideoTimeRef.current) {
             lastVideoTimeRef.current = currentVideoTime;
             const result = detector.detectForVideo(videoRef.current, performance.now());
-            const hand = result.landmarks?.[0] ?? [];
-            setLandmarks(hand);
+            const hands = result.landmarks ?? [];
+            setLandmarks(hands);
 
-            if (hand.length) {
+            if (hands.length) {
               const now = performance.now();
-              const nextMetrics = getHandMetrics(hand, previousMetricsRef.current, previousTimeRef.current, now);
+              const nextMetrics = getHandsMetrics(hands, previousMetricsRef.current, previousTimeRef.current, now);
               previousMetricsRef.current = nextMetrics;
               previousTimeRef.current = now;
               setMetrics(nextMetrics);
-              setGesture(classifyGesture(hand, nextMetrics));
+              setGesture(classifyGesture(hands, nextMetrics));
             } else {
               previousMetricsRef.current = baseMetrics;
               previousTimeRef.current = 0;
@@ -178,15 +180,61 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
   return { status, error, gesture, landmarks, metrics, resetCamera };
 }
 
-function classifyGesture(hand, metrics) {
-  const fingers = [8, 12, 16, 20].map((tipIndex) => isFingerOpen(hand, tipIndex));
+function classifyGesture(hands, metrics) {
+  const primaryHand = hands[0] ?? [];
+  const fingers = [8, 12, 16, 20].map((tipIndex) => isFingerOpen(primaryHand, tipIndex));
   const openCount = fingers.filter(Boolean).length;
 
+  if (metrics.handCount >= 2) {
+    if (metrics.handSpan > 0.55 || metrics.openness > 0.52) return 'open';
+    if (metrics.handSpan < 0.22 || metrics.openness < 0.34) return 'fist';
+  }
   if (metrics.pinch < 0.3) return 'pinch';
   if (openCount <= 1 && metrics.openness < 0.38) return 'fist';
   if (fingers[0] && !fingers[1] && !fingers[2] && !fingers[3]) return 'point';
   if (openCount >= 3 && metrics.openness > 0.45) return 'open';
   return 'unknown';
+}
+
+function getHandsMetrics(hands, previousMetrics, previousTime, now) {
+  const handMetrics = hands.map((hand) => getHandMetrics(hand));
+  const primary = handMetrics[0];
+  const handCount = handMetrics.length;
+  let aggregate = { ...primary, handCount, handSpan: 0 };
+
+  if (handCount >= 2) {
+    const secondary = handMetrics[1];
+    const palmX = (primary.palmX + secondary.palmX) / 2;
+    const palmY = (primary.palmY + secondary.palmY) / 2;
+    const palmZ = (primary.palmZ + secondary.palmZ) / 2;
+    const handSpan = clamp(Math.hypot(primary.palmX - secondary.palmX, primary.palmY - secondary.palmY) / 1.35);
+
+    aggregate = {
+      ...aggregate,
+      openness: clamp(Math.max((primary.openness + secondary.openness) / 2, handSpan)),
+      pinch: clamp((primary.pinch + secondary.pinch) / 2),
+      palmX,
+      palmY,
+      palmZ,
+      roll: clampSigned((primary.roll + secondary.roll) / 2),
+      yaw: clampSigned((primary.yaw + secondary.yaw) / 2),
+      pitch: clampSigned((primary.pitch + secondary.pitch) / 2),
+      spread: clamp(Math.max((primary.spread + secondary.spread) / 2, handSpan)),
+      grab: clamp(1 - handSpan * 1.35 + (1 - (primary.openness + secondary.openness) / 2) * 0.35),
+      anchorX: palmX,
+      anchorY: palmY,
+      handSpan,
+      confidence: clamp((primary.confidence + secondary.confidence) / 2 + 0.18),
+    };
+  }
+
+  const dt = previousTime ? Math.max((now - previousTime) / 1000, 0.016) : 0.016;
+  return {
+    ...aggregate,
+    velocityX: clampSigned((aggregate.palmX - previousMetrics.palmX) / dt / 6),
+    velocityY: clampSigned((aggregate.palmY - previousMetrics.palmY) / dt / 6),
+    velocityZ: clampSigned((aggregate.palmZ - previousMetrics.palmZ) / dt / 6),
+  };
 }
 
 function getHandMetrics(hand, previousMetrics, previousTime, now) {
@@ -206,10 +254,6 @@ function getHandMetrics(hand, previousMetrics, previousTime, now) {
   const palmX = clamp((palmCenter.x - 0.5) * 2, -1, 1);
   const palmY = clamp((palmCenter.y - 0.5) * 2, -1, 1);
   const palmZ = clamp(1 - palmSize * 7.5, -1, 1);
-  const dt = previousTime ? Math.max((now - previousTime) / 1000, 0.016) : 0.016;
-  const velocityX = clampSigned((palmX - previousMetrics.palmX) / dt / 6);
-  const velocityY = clampSigned((palmY - previousMetrics.palmY) / dt / 6);
-  const velocityZ = clampSigned((palmZ - previousMetrics.palmZ) / dt / 6);
 
   return {
     openness,
@@ -221,15 +265,17 @@ function getHandMetrics(hand, previousMetrics, previousTime, now) {
     yaw,
     pitch,
     spread: clamp(knuckleSpan / 1.55),
-    velocityX,
-    velocityY,
-    velocityZ,
+    velocityX: 0,
+    velocityY: 0,
+    velocityZ: 0,
     grab: clamp(1 - pinchDistance * 1.45 + (1 - openness) * 0.35),
     anchorX: clamp((thumbIndexMid.x - 0.5) * 2, -1, 1),
     anchorY: clamp((thumbIndexMid.y - 0.5) * 2, -1, 1),
     pointX: clamp((hand[8].x - 0.5) * 2, -1, 1),
     pointY: clamp((hand[8].y - 0.5) * 2, -1, 1),
     pointZ: clamp((hand[8].z - hand[0].z) / (palmSize * 1.2), -1, 1),
+    handCount: 1,
+    handSpan: 0,
     confidence: clamp(1 - Math.abs(0.55 - openness) * 0.55),
   };
 }

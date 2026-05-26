@@ -159,6 +159,8 @@ function sanitizeGesture(data) {
       pointX: clamp(metrics.pointX, -1, 1),
       pointY: clamp(metrics.pointY, -1, 1),
       pointZ: clamp(metrics.pointZ, -1, 1),
+      handCount: clamp(metrics.handCount, 0, 2),
+      handSpan: clamp(metrics.handSpan),
       confidence: clamp(metrics.confidence),
     },
     updatedAt: Date.now(),

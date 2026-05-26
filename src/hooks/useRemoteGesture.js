@@ -19,6 +19,8 @@ const emptyMetrics = {
   pointX: 0,
   pointY: 0,
   pointZ: 0,
+  handCount: 0,
+  handSpan: 0,
   confidence: 0,
 };
 

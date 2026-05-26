@@ -49,6 +49,8 @@ function App() {
       pointX: activeMetrics.pointX,
       pointY: activeMetrics.pointY,
       pointZ: activeMetrics.pointZ,
+      handCount: activeMetrics.handCount,
+      handSpan: activeMetrics.handSpan,
       confidence: activeMetrics.confidence,
     }),
     [activeGesture, activeMetrics],

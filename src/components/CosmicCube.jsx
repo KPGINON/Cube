@@ -30,6 +30,8 @@ const defaultSignal = {
   pointX: 0,
   pointY: 0,
   pointZ: 0,
+  handCount: 0,
+  handSpan: 0,
   confidence: 0,
 };
 
@@ -86,6 +88,7 @@ export default function CosmicCube({ signal }) {
       depthWrite: false,
     });
     const fluidSkin = new THREE.Mesh(fluidGeometry.clone(), skinMaterial);
+    fluidSkin.renderOrder = -1;
     fluidGroup.add(fluidSkin);
 
     const glowMaterial = new THREE.MeshBasicMaterial({
@@ -98,6 +101,7 @@ export default function CosmicCube({ signal }) {
     });
     const glowShell = new THREE.Mesh(fluidGeometry.clone(), glowMaterial);
     glowShell.scale.setScalar(1.18);
+    glowShell.renderOrder = -2;
     fluidGroup.add(glowShell);
 
     const ringMaterial = new THREE.MeshBasicMaterial({
@@ -172,13 +176,17 @@ export default function CosmicCube({ signal }) {
       softSignal.pointX = THREE.MathUtils.lerp(softSignal.pointX, current.pointX ?? softSignal.palmX, 0.08);
       softSignal.pointY = THREE.MathUtils.lerp(softSignal.pointY, current.pointY ?? softSignal.palmY, 0.08);
       softSignal.pointZ = THREE.MathUtils.lerp(softSignal.pointZ, current.pointZ ?? 0, 0.08);
+      softSignal.handCount = THREE.MathUtils.lerp(softSignal.handCount, current.handCount ?? 0, 0.14);
+      softSignal.handSpan = THREE.MathUtils.lerp(softSignal.handSpan, current.handSpan ?? 0, 0.08);
       softSignal.confidence = THREE.MathUtils.lerp(softSignal.confidence, current.confidence, 0.065);
 
       const squeeze = 1 - softSignal.pinch;
-      const pointFollow = current.gesture === 'point' ? softSignal.confidence : 0;
+      const twoHandControl = THREE.MathUtils.clamp(softSignal.handCount - 1, 0, 1);
+      const pointFollow = current.gesture === 'point' && twoHandControl < 0.35 ? softSignal.confidence : 0;
       const breath = 0.5 + Math.sin(elapsed * 1.35) * 0.5;
-      const spreadEnergy = Math.max(softSignal.openness, softSignal.spread * 0.92);
-      const gatherEnergy = Math.max(0, 1 - softSignal.openness, squeeze * 0.85);
+      const heartbeat = Math.pow(0.5 + Math.sin(elapsed * 2.65) * 0.5, 6);
+      const spreadEnergy = Math.max(softSignal.openness, softSignal.spread * 0.92, softSignal.handSpan * twoHandControl);
+      const gatherEnergy = Math.max(0, 1 - spreadEnergy, squeeze * 0.85);
       const held = Math.max(softSignal.grab, pointFollow);
       const motionEnergy =
         Math.abs(softSignal.velocityX) + Math.abs(softSignal.velocityY) + Math.abs(softSignal.velocityZ);
@@ -187,8 +195,9 @@ export default function CosmicCube({ signal }) {
         spreadEnergy * 0.46 -
         gatherEnergy * 0.18 +
         softSignal.palmZ * -0.12 +
-        breath * 0.028;
-      const fluidity = 0.1 + spreadEnergy * 0.22 + squeeze * 0.08 + motionEnergy * 0.11;
+        breath * 0.028 +
+        heartbeat * 0.035;
+      const fluidity = 0.1 + spreadEnergy * 0.22 + squeeze * 0.08 + motionEnergy * 0.11 + heartbeat * 0.04;
 
       morphFluidGeometry(fluidGeometry, basePositions, elapsed, softSignal, fluidity, 1);
       morphFluidGeometry(fluidSkin.geometry, basePositions, elapsed + 0.18, softSignal, fluidity * 1.25, 1.012);
@@ -199,14 +208,14 @@ export default function CosmicCube({ signal }) {
       coreMaterial.opacity = 0.08 + softSignal.confidence * 0.08 + squeeze * 0.05;
       coreMaterial.emissiveIntensity = 0.88 + softSignal.confidence * 0.85 + squeeze * 0.45;
       skinMaterial.color.lerp(color, 0.08);
-      skinMaterial.opacity = 0.03 + softSignal.openness * 0.06 + squeeze * 0.04;
+      skinMaterial.opacity = 0.006 + softSignal.openness * 0.018;
       glowMaterial.color.lerp(color, 0.08);
       glowMaterial.opacity = 0.08 + softSignal.confidence * 0.06 + squeeze * 0.08;
       ringMaterial.color.lerp(color, 0.08);
       shardCloud.material.color.lerp(color, 0.08);
       shardCloud.material.emissive.lerp(color, 0.08);
       shardCloud.lineMaterial.color.lerp(color, 0.08);
-      updateShardCloud(shardCloud, elapsed, softSignal, spreadEnergy, gatherEnergy, motionEnergy);
+      updateShardCloud(shardCloud, elapsed, softSignal, spreadEnergy, gatherEnergy, motionEnergy, heartbeat);
 
       targetScale.set(
         scale * (1 + spreadEnergy * 0.14 + Math.abs(softSignal.yaw) * 0.08),
@@ -262,7 +271,7 @@ export default function CosmicCube({ signal }) {
       particles.rotation.x += softSignal.palmY * 0.001 + spinImpulse.x * 0.15;
       particles.position.copy(heldPosition).multiplyScalar(-0.12);
       particles.scale.setScalar(0.78 + spreadEnergy * 0.48 - gatherEnergy * 0.1);
-      particles.material.opacity = 0.2 + softSignal.confidence * 0.26 + squeeze * 0.14 + motionEnergy * 0.08;
+      particles.material.opacity = 0.16 + softSignal.confidence * 0.22 + squeeze * 0.1 + motionEnergy * 0.08 + heartbeat * 0.1;
 
       renderer.render(scene, camera);
       animationId = requestAnimationFrame(animate);
@@ -388,6 +397,7 @@ function createShardCloud() {
     clearcoatRoughness: 0.24,
   });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
+  mesh.renderOrder = 2;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
   const shards = Array.from({ length: count }, () => {
@@ -414,20 +424,19 @@ function createShardCloud() {
     };
   });
 
-  const linePairs = Array.from({ length: 280 }, () => [
-    Math.floor(Math.random() * count),
-    Math.floor(Math.random() * count),
-  ]);
+  const linePairs = createLocalLinePairs(shards, 230);
   const lineGeometry = new THREE.BufferGeometry();
   lineGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(linePairs.length * 6), 3));
   const lineMaterial = new THREE.LineBasicMaterial({
     color: '#b9ffff',
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.18,
     blending: THREE.AdditiveBlending,
+    depthTest: true,
     depthWrite: false,
   });
   const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+  lines.renderOrder = 0;
 
   return {
     geometry,
@@ -445,24 +454,26 @@ function createShardCloud() {
   };
 }
 
-function updateShardCloud(cloud, elapsed, signal, spreadEnergy, gatherEnergy, motionEnergy) {
+function updateShardCloud(cloud, elapsed, signal, spreadEnergy, gatherEnergy, motionEnergy, heartbeat) {
   const expansion = 0.66 + spreadEnergy * 0.72 - gatherEnergy * 0.2;
-  const jitter = 0.08 + spreadEnergy * 0.32 + motionEnergy * 0.24;
+  const jitter = 0.08 + spreadEnergy * 0.32 + motionEnergy * 0.24 + heartbeat * 0.06;
   const squeezeX = 1 + (1 - signal.openness) * 0.24;
   const squeezeY = 1 - (1 - signal.openness) * 0.18;
   const linePositions = cloud.lineGeometry.attributes.position.array;
 
-  cloud.mesh.rotation.x += signal.velocityY * 0.004;
-  cloud.mesh.rotation.y += signal.velocityX * 0.005;
+  cloud.mesh.rotation.x += signal.velocityY * 0.004 + Math.sin(elapsed * 0.7) * 0.0009;
+  cloud.mesh.rotation.y += signal.velocityX * 0.005 + Math.cos(elapsed * 0.6) * 0.0012;
+  cloud.mesh.rotation.z += Math.sin(elapsed * 0.9) * 0.0008;
   cloud.lines.rotation.copy(cloud.mesh.rotation);
-  cloud.material.opacity = 0.58 + signal.confidence * 0.22 + spreadEnergy * 0.08;
-  cloud.material.emissiveIntensity = 0.95 + signal.confidence * 0.9 + spreadEnergy * 0.5 + motionEnergy * 0.35;
-  cloud.lineMaterial.opacity = 0.2 + signal.confidence * 0.2 + spreadEnergy * 0.22;
+  cloud.material.opacity = 0.62 + signal.confidence * 0.2 + spreadEnergy * 0.08;
+  cloud.material.emissiveIntensity = 1.05 + signal.confidence * 0.9 + spreadEnergy * 0.52 + motionEnergy * 0.35 + heartbeat * 0.75;
+  cloud.lineMaterial.opacity = 0.08 + signal.confidence * 0.1 + spreadEnergy * 0.08 + heartbeat * 0.06;
 
   cloud.shards.forEach((shard, index) => {
     const pulse =
-      Math.sin(elapsed * 2.2 + shard.phase) * 0.055 +
-      Math.sin(elapsed * 3.7 + shard.base.x * 2.1 + signal.roll * 2) * 0.045;
+      Math.sin(elapsed * 2.2 + shard.phase) * 0.075 +
+      Math.sin(elapsed * 3.7 + shard.base.x * 2.1 + signal.roll * 2) * 0.055 +
+      heartbeat * 0.08;
     const smear = new THREE.Vector3(signal.velocityX, -signal.velocityY, signal.velocityZ).multiplyScalar(
       0.18 + spreadEnergy * 0.16,
     );
@@ -482,8 +493,8 @@ function updateShardCloud(cloud, elapsed, signal, spreadEnergy, gatherEnergy, mo
         elapsed * shard.spin.z * 0.8 - signal.roll,
       ),
     );
-    const shardScale = (0.55 + spreadEnergy * 0.45 - gatherEnergy * 0.16) * shard.size;
-    cloud.scale.set(shardScale * (0.9 + spreadEnergy * 0.5), shardScale * 0.62, shardScale * 0.72);
+    const shardScale = (0.52 + spreadEnergy * 0.45 - gatherEnergy * 0.14 + heartbeat * 0.08) * shard.size;
+    cloud.scale.set(shardScale * (0.9 + spreadEnergy * 0.5), shardScale * 0.62, shardScale * (0.72 + heartbeat * 0.18));
     cloud.matrix.compose(cloud.positions[index], cloud.rotation, cloud.scale);
     cloud.mesh.setMatrixAt(index, cloud.matrix);
   });
@@ -502,4 +513,31 @@ function updateShardCloud(cloud, elapsed, signal, spreadEnergy, gatherEnergy, mo
 
   cloud.mesh.instanceMatrix.needsUpdate = true;
   cloud.lineGeometry.attributes.position.needsUpdate = true;
+}
+
+function createLocalLinePairs(shards, targetCount) {
+  const pairs = [];
+  const used = new Set();
+
+  for (let i = 0; i < shards.length && pairs.length < targetCount; i += 1) {
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+
+    for (let j = 0; j < shards.length; j += 1) {
+      if (i === j) continue;
+      const distance = shards[i].base.distanceToSquared(shards[j].base);
+      if (distance < bestDistance && distance > 0.018) {
+        bestDistance = distance;
+        bestIndex = j;
+      }
+    }
+
+    const key = bestIndex > i ? `${i}-${bestIndex}` : `${bestIndex}-${i}`;
+    if (bestIndex >= 0 && !used.has(key)) {
+      used.add(key);
+      pairs.push([i, bestIndex]);
+    }
+  }
+
+  return pairs;
 }
