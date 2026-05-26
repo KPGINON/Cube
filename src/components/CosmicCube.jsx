@@ -16,6 +16,17 @@ const defaultSignal = {
   pinch: 1,
   palmX: 0,
   palmY: 0,
+  palmZ: 0,
+  roll: 0,
+  yaw: 0,
+  pitch: 0,
+  spread: 0,
+  velocityX: 0,
+  velocityY: 0,
+  velocityZ: 0,
+  grab: 0,
+  anchorX: 0,
+  anchorY: 0,
   confidence: 0,
 };
 
@@ -124,6 +135,13 @@ export default function CosmicCube({ signal }) {
     let animationId = 0;
     const softSignal = { ...defaultSignal };
     const targetScale = new THREE.Vector3(1, 1, 1);
+    const heldPosition = new THREE.Vector3();
+    const heldVelocity = new THREE.Vector3();
+    const targetPosition = new THREE.Vector3();
+    const heldRotation = new THREE.Euler();
+    const heldQuaternion = new THREE.Quaternion();
+    const targetQuaternion = new THREE.Quaternion();
+    const spinImpulse = new THREE.Vector3();
 
     const animate = () => {
       const elapsed = clock.getElapsedTime();
@@ -134,12 +152,32 @@ export default function CosmicCube({ signal }) {
       softSignal.pinch = THREE.MathUtils.lerp(softSignal.pinch, current.pinch, 0.075);
       softSignal.palmX = THREE.MathUtils.lerp(softSignal.palmX, current.palmX, 0.05);
       softSignal.palmY = THREE.MathUtils.lerp(softSignal.palmY, current.palmY, 0.05);
+      softSignal.palmZ = THREE.MathUtils.lerp(softSignal.palmZ, current.palmZ ?? 0, 0.05);
+      softSignal.roll = THREE.MathUtils.lerp(softSignal.roll, current.roll ?? 0, 0.06);
+      softSignal.yaw = THREE.MathUtils.lerp(softSignal.yaw, current.yaw ?? 0, 0.06);
+      softSignal.pitch = THREE.MathUtils.lerp(softSignal.pitch, current.pitch ?? 0, 0.06);
+      softSignal.spread = THREE.MathUtils.lerp(softSignal.spread, current.spread ?? 0, 0.055);
+      softSignal.velocityX = THREE.MathUtils.lerp(softSignal.velocityX, current.velocityX ?? 0, 0.12);
+      softSignal.velocityY = THREE.MathUtils.lerp(softSignal.velocityY, current.velocityY ?? 0, 0.12);
+      softSignal.velocityZ = THREE.MathUtils.lerp(softSignal.velocityZ, current.velocityZ ?? 0, 0.12);
+      softSignal.grab = THREE.MathUtils.lerp(softSignal.grab, current.grab ?? 0, 0.09);
+      softSignal.anchorX = THREE.MathUtils.lerp(softSignal.anchorX, current.anchorX ?? softSignal.palmX, 0.055);
+      softSignal.anchorY = THREE.MathUtils.lerp(softSignal.anchorY, current.anchorY ?? softSignal.palmY, 0.055);
       softSignal.confidence = THREE.MathUtils.lerp(softSignal.confidence, current.confidence, 0.065);
 
       const squeeze = 1 - softSignal.pinch;
       const breath = 0.5 + Math.sin(elapsed * 1.35) * 0.5;
-      const scale = 0.88 + softSignal.openness * 0.48 + squeeze * 0.22 + breath * 0.035;
-      const fluidity = 0.12 + softSignal.openness * 0.24 + squeeze * 0.18;
+      const held = Math.max(softSignal.grab, squeeze * 0.9);
+      const motionEnergy =
+        Math.abs(softSignal.velocityX) + Math.abs(softSignal.velocityY) + Math.abs(softSignal.velocityZ);
+      const scale =
+        0.78 +
+        softSignal.openness * 0.34 +
+        softSignal.spread * 0.18 +
+        squeeze * 0.18 +
+        softSignal.palmZ * -0.12 +
+        breath * 0.028;
+      const fluidity = 0.1 + softSignal.openness * 0.2 + squeeze * 0.18 + motionEnergy * 0.11;
 
       morphFluidGeometry(fluidGeometry, basePositions, elapsed, softSignal, fluidity, 1);
       morphFluidGeometry(fluidSkin.geometry, basePositions, elapsed + 0.18, softSignal, fluidity * 1.25, 1.012);
@@ -155,28 +193,56 @@ export default function CosmicCube({ signal }) {
       glowMaterial.opacity = 0.14 + softSignal.confidence * 0.1 + squeeze * 0.12;
       ringMaterial.color.lerp(color, 0.08);
 
-      targetScale.set(scale * (1 + squeeze * 0.08), scale * (1 - squeeze * 0.04), scale);
-      fluidGroup.scale.lerp(targetScale, 0.055);
-      fluidGroup.position.x = THREE.MathUtils.lerp(fluidGroup.position.x, softSignal.palmX * 0.42, 0.045);
-      fluidGroup.position.y = THREE.MathUtils.lerp(fluidGroup.position.y, -softSignal.palmY * 0.32, 0.045);
-      fluidGroup.rotation.x += 0.0025 + softSignal.palmY * 0.006;
-      fluidGroup.rotation.y += 0.0035 + softSignal.palmX * 0.008;
-      fluidCore.rotation.z = Math.sin(elapsed * 0.72) * 0.06 + softSignal.palmX * 0.12;
+      targetScale.set(
+        scale * (1 + squeeze * 0.1 + Math.abs(softSignal.yaw) * 0.08),
+        scale * (1 - squeeze * 0.08 + Math.abs(softSignal.pitch) * 0.05),
+        scale * (1 + softSignal.palmZ * -0.08),
+      );
+      fluidGroup.scale.lerp(targetScale, 0.06);
+
+      targetPosition.set(
+        softSignal.palmX * 1.45 + softSignal.anchorX * held * 0.22,
+        -softSignal.palmY * 0.92 - softSignal.anchorY * held * 0.14,
+        softSignal.palmZ * 0.82,
+      );
+      heldVelocity.addScaledVector(targetPosition.clone().sub(heldPosition), 0.055 + held * 0.035);
+      heldVelocity.add(new THREE.Vector3(softSignal.velocityX, -softSignal.velocityY, softSignal.velocityZ).multiplyScalar(0.016));
+      heldVelocity.multiplyScalar(0.82 - held * 0.08);
+      heldPosition.add(heldVelocity);
+      fluidGroup.position.copy(heldPosition);
+
+      heldRotation.set(
+        softSignal.pitch * 1.05 + softSignal.palmY * 0.22,
+        -softSignal.yaw * 1.2 + softSignal.palmX * 0.26,
+        -softSignal.roll * 2.1 + Math.sin(elapsed * 0.55) * 0.04,
+        'XYZ',
+      );
+      targetQuaternion.setFromEuler(heldRotation);
+      heldQuaternion.slerp(targetQuaternion, 0.08 + held * 0.06);
+      fluidGroup.quaternion.copy(heldQuaternion);
+
+      spinImpulse.x = THREE.MathUtils.lerp(spinImpulse.x, softSignal.velocityY * 0.018, 0.08);
+      spinImpulse.y = THREE.MathUtils.lerp(spinImpulse.y, softSignal.velocityX * 0.018, 0.08);
+      spinImpulse.z = THREE.MathUtils.lerp(spinImpulse.z, (softSignal.velocityX - softSignal.velocityY) * 0.012, 0.08);
+      fluidCore.rotation.x += 0.0015 + spinImpulse.x;
+      fluidCore.rotation.y += 0.002 + spinImpulse.y;
+      fluidCore.rotation.z += spinImpulse.z + Math.sin(elapsed * 0.72) * 0.001 + softSignal.roll * 0.002;
       fluidSkin.rotation.copy(fluidCore.rotation);
       glowShell.rotation.copy(fluidCore.rotation);
 
       rings.forEach((ring, index) => {
-        const ringBreath = 1 + Math.sin(elapsed * 1.6 + index) * 0.035 + squeeze * 0.09;
+        const ringBreath = 1 + Math.sin(elapsed * 1.6 + index) * 0.035 + squeeze * 0.09 + held * 0.04;
         ring.scale.setScalar(ringBreath);
-        ring.rotation.x += 0.0018 * (index + 1) + softSignal.openness * 0.004;
-        ring.rotation.y -= 0.0025 * (index + 1) + squeeze * 0.006;
-        ring.rotation.z += softSignal.palmX * 0.003;
+        ring.rotation.x += 0.0018 * (index + 1) + softSignal.openness * 0.004 + spinImpulse.x * 0.4;
+        ring.rotation.y -= 0.0025 * (index + 1) + squeeze * 0.006 + spinImpulse.y * 0.4;
+        ring.rotation.z += softSignal.palmX * 0.003 + spinImpulse.z * 0.3;
         ring.material.opacity = 0.13 + softSignal.confidence * 0.18 + squeeze * 0.15;
       });
 
-      particles.rotation.y -= 0.001 + softSignal.openness * 0.0025;
-      particles.rotation.x += softSignal.palmY * 0.001;
-      particles.material.opacity = 0.22 + softSignal.confidence * 0.28 + squeeze * 0.16;
+      particles.rotation.y -= 0.001 + softSignal.openness * 0.0025 + Math.abs(spinImpulse.y) * 0.2;
+      particles.rotation.x += softSignal.palmY * 0.001 + spinImpulse.x * 0.15;
+      particles.position.copy(heldPosition).multiplyScalar(-0.12);
+      particles.material.opacity = 0.2 + softSignal.confidence * 0.26 + squeeze * 0.14 + motionEnergy * 0.08;
 
       renderer.render(scene, camera);
       animationId = requestAnimationFrame(animate);
@@ -228,11 +294,24 @@ function morphFluidGeometry(geometry, basePositions, elapsed, signal, fluidity, 
     normal.normalize();
 
     const ripple =
-      Math.sin(x * 3.1 + elapsed * 2.2 + signal.palmX * 2.2) * 0.45 +
-      Math.sin(y * 3.8 - elapsed * 1.85 + signal.palmY * 2.4) * 0.34 +
-      Math.sin((x + y + z) * 2.05 + elapsed * 2.9) * 0.25;
+      Math.sin(x * 3.1 + elapsed * 2.2 + signal.palmX * 2.2 + signal.roll * 2.4) * 0.45 +
+      Math.sin(y * 3.8 - elapsed * 1.85 + signal.palmY * 2.4 + signal.pitch * 1.8) * 0.34 +
+      Math.sin((x + y + z) * 2.05 + elapsed * 2.9 + signal.yaw * 2.2) * 0.25;
     const slowPull = Math.sin(elapsed * 0.95 + normal.x * 4 + normal.y * 2) * 0.08;
-    const displacement = (ripple * fluidity + slowPull) * shellScale;
+    const anchorPull =
+      signal.grab *
+      Math.max(
+        0,
+        1 -
+          Math.hypot(
+            normal.x - signal.anchorX * 0.55,
+            normal.y + signal.anchorY * 0.55,
+            normal.z - signal.palmZ * 0.35,
+          ),
+      );
+    const directionalSmear =
+      (normal.x * signal.velocityX - normal.y * signal.velocityY + normal.z * signal.velocityZ) * 0.13;
+    const displacement = (ripple * fluidity + slowPull - anchorPull * 0.34 + directionalSmear) * shellScale;
 
     target.set(x, y, z).multiplyScalar(shellScale);
     target.addScaledVector(normal, displacement);

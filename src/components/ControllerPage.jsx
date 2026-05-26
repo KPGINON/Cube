@@ -44,7 +44,7 @@ export default function ControllerPage() {
 
         <div className="readout">
           <div>
-            <span>发送手势</span>
+            <span>发送状态</span>
             <strong>{gestureLabels[gesture] ?? gestureLabels.unknown}</strong>
           </div>
           <Hand size={28} />

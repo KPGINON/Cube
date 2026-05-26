@@ -9,6 +9,17 @@ const baseMetrics = {
   pinch: 1,
   palmX: 0,
   palmY: 0,
+  palmZ: 0,
+  roll: 0,
+  yaw: 0,
+  pitch: 0,
+  spread: 0,
+  velocityX: 0,
+  velocityY: 0,
+  velocityZ: 0,
+  grab: 0,
+  anchorX: 0,
+  anchorY: 0,
   confidence: 0,
 };
 
@@ -16,6 +27,8 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
   const detectorRef = useRef(null);
   const streamRef = useRef(null);
   const frameRef = useRef(null);
+  const previousMetricsRef = useRef(baseMetrics);
+  const previousTimeRef = useRef(0);
   const lastVideoTimeRef = useRef(-1);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
@@ -39,6 +52,8 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
     setLandmarks([]);
     setGesture('idle');
     setMetrics(baseMetrics);
+    previousMetricsRef.current = baseMetrics;
+    previousTimeRef.current = 0;
     setStatus('idle');
   }, [videoRef]);
 
@@ -82,6 +97,14 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
       setError('');
 
       try {
+        if (!window.isSecureContext) {
+          throw new Error('INSECURE_CONTEXT');
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('GET_USER_MEDIA_UNAVAILABLE');
+        }
+
         const [detector, stream] = await Promise.all([
           createDetector(),
           navigator.mediaDevices.getUserMedia({
@@ -116,10 +139,15 @@ export default function useHandTracking(videoRef, enabled, cameraOptions = {}) {
             setLandmarks(hand);
 
             if (hand.length) {
-              const nextMetrics = getHandMetrics(hand);
+              const now = performance.now();
+              const nextMetrics = getHandMetrics(hand, previousMetricsRef.current, previousTimeRef.current, now);
+              previousMetricsRef.current = nextMetrics;
+              previousTimeRef.current = now;
               setMetrics(nextMetrics);
               setGesture(classifyGesture(hand, nextMetrics));
             } else {
+              previousMetricsRef.current = baseMetrics;
+              previousTimeRef.current = 0;
               setMetrics(baseMetrics);
               setGesture('unknown');
             }
@@ -158,22 +186,45 @@ function classifyGesture(hand, metrics) {
   return 'unknown';
 }
 
-function getHandMetrics(hand) {
+function getHandMetrics(hand, previousMetrics, previousTime, now) {
   const wrist = hand[0];
   const palmCenter = average([hand[0], hand[5], hand[9], hand[13], hand[17]]);
+  const thumbIndexMid = average([hand[4], hand[8]]);
   const tips = [hand[4], hand[8], hand[12], hand[16], hand[20]];
   const avgTipDistance =
     tips.reduce((total, point) => total + distance(point, palmCenter), 0) / tips.length;
   const palmSize = distance(wrist, hand[9]) || 0.001;
   const openness = clamp(avgTipDistance / (palmSize * 1.55));
   const pinchDistance = distance(hand[4], hand[8]) / palmSize;
+  const knuckleSpan = distance(hand[5], hand[17]) / palmSize;
+  const roll = clampSigned(Math.atan2(hand[17].y - hand[5].y, hand[17].x - hand[5].x) / Math.PI);
+  const yaw = clampSigned((hand[5].z - hand[17].z) / (palmSize * 0.7));
+  const pitch = clampSigned((wrist.y - hand[9].y) / (palmSize * 1.3));
+  const palmX = clamp((palmCenter.x - 0.5) * 2, -1, 1);
+  const palmY = clamp((palmCenter.y - 0.5) * 2, -1, 1);
+  const palmZ = clamp(1 - palmSize * 7.5, -1, 1);
+  const dt = previousTime ? Math.max((now - previousTime) / 1000, 0.016) : 0.016;
+  const velocityX = clampSigned((palmX - previousMetrics.palmX) / dt / 6);
+  const velocityY = clampSigned((palmY - previousMetrics.palmY) / dt / 6);
+  const velocityZ = clampSigned((palmZ - previousMetrics.palmZ) / dt / 6);
 
   return {
     openness,
     pinch: clamp(pinchDistance),
-    palmX: clamp((palmCenter.x - 0.5) * 2, -1, 1),
-    palmY: clamp((palmCenter.y - 0.5) * 2, -1, 1),
-    confidence: clamp(1 - Math.abs(0.55 - openness) * 0.7),
+    palmX,
+    palmY,
+    palmZ,
+    roll,
+    yaw,
+    pitch,
+    spread: clamp(knuckleSpan / 1.55),
+    velocityX,
+    velocityY,
+    velocityZ,
+    grab: clamp(1 - pinchDistance * 1.45 + (1 - openness) * 0.35),
+    anchorX: clamp((thumbIndexMid.x - 0.5) * 2, -1, 1),
+    anchorY: clamp((thumbIndexMid.y - 0.5) * 2, -1, 1),
+    confidence: clamp(1 - Math.abs(0.55 - openness) * 0.55),
   };
 }
 
@@ -203,8 +254,21 @@ function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
 }
 
+function clampSigned(value) {
+  return clamp(value, -1, 1);
+}
+
 function getCameraError(cause) {
+  if (cause?.message === 'INSECURE_CONTEXT') {
+    return 'Safari 调用摄像头需要 HTTPS。请使用 https 地址访问，或在本机 localhost 调试。';
+  }
+
+  if (cause?.message === 'GET_USER_MEDIA_UNAVAILABLE') {
+    return '当前浏览器不支持摄像头 API，或页面不在安全上下文中。Safari 请使用 HTTPS。';
+  }
+
   if (cause?.name === 'NotAllowedError') return '摄像头权限被拒绝，请在浏览器地址栏允许访问摄像头。';
   if (cause?.name === 'NotFoundError') return '没有找到可用摄像头。';
+  if (cause?.name === 'NotReadableError') return '摄像头被其他应用占用，关闭占用摄像头的应用后再试。';
   return '摄像头或手势模型启动失败，请确认网络和浏览器权限。';
 }

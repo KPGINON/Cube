@@ -5,6 +5,17 @@ const emptyMetrics = {
   pinch: 1,
   palmX: 0,
   palmY: 0,
+  palmZ: 0,
+  roll: 0,
+  yaw: 0,
+  pitch: 0,
+  spread: 0,
+  velocityX: 0,
+  velocityY: 0,
+  velocityZ: 0,
+  grab: 0,
+  anchorX: 0,
+  anchorY: 0,
   confidence: 0,
 };
 

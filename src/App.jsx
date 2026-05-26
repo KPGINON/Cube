@@ -35,6 +35,17 @@ function App() {
       pinch: activeMetrics.pinch,
       palmX: activeMetrics.palmX,
       palmY: activeMetrics.palmY,
+      palmZ: activeMetrics.palmZ,
+      roll: activeMetrics.roll,
+      yaw: activeMetrics.yaw,
+      pitch: activeMetrics.pitch,
+      spread: activeMetrics.spread,
+      velocityX: activeMetrics.velocityX,
+      velocityY: activeMetrics.velocityY,
+      velocityZ: activeMetrics.velocityZ,
+      grab: activeMetrics.grab,
+      anchorX: activeMetrics.anchorX,
+      anchorY: activeMetrics.anchorY,
       confidence: activeMetrics.confidence,
     }),
     [activeGesture, activeMetrics],
@@ -65,7 +76,7 @@ function App() {
         <aside className="control-panel" aria-label="控制面板">
           <div className="readout">
             <div>
-              <span>当前手势</span>
+              <span>手部状态</span>
               <strong>{gestureLabels[activeGesture] ?? gestureLabels.unknown}</strong>
             </div>
             <Hand size={28} />

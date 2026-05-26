@@ -70,3 +70,12 @@ server {
 https://your-domain.com/
 https://your-domain.com/controller
 ```
+
+Safari 尤其严格：
+
+- `http://服务器IP:3000/controller` 通常不能打开摄像头。
+- `https://域名/controller` 才是推荐方式。
+- iPhone 上需要在 Safari 弹窗里允许摄像头权限。
+- 如果曾经拒绝过权限，需要到 iOS 设置里重新允许：设置 -> Safari -> 摄像头。
+
+如果暂时没有 HTTPS，可以先用 Chrome/Edge 测试页面逻辑，但正式手机摄像头控制建议尽快配置 HTTPS。

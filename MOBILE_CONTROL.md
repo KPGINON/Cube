@@ -68,6 +68,18 @@ Vite 默认把 `/api` 转发到 `http://localhost:3000`，也可以用 `RELAY_PO
 
 如果手机无法授权摄像头，后续可以加 HTTPS 本地证书，或把页面部署到支持 HTTPS 的地址，再把 relay 地址配置为 `VITE_RELAY_ORIGIN`。
 
+Safari 基本需要 HTTPS。部署到服务器后，推荐使用：
+
+```text
+https://你的域名/controller
+```
+
+不要用：
+
+```text
+http://服务器IP:3000/controller
+```
+
 ## 当前数据链路
 
 - 手机 `/controller`：调用手机摄像头，识别手势。
