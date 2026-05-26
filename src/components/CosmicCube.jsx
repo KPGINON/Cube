@@ -65,7 +65,7 @@ export default function CosmicCube({ signal }) {
       metalness: 0.08,
       transmission: 0.58,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.16,
       thickness: 1.35,
       ior: 1.35,
       clearcoat: 1,
@@ -118,6 +118,9 @@ export default function CosmicCube({ signal }) {
 
     const particles = createParticles();
     fluidGroup.add(particles);
+
+    const shardCloud = createShardCloud();
+    fluidGroup.add(shardCloud.mesh, shardCloud.lines);
 
     const ambient = new THREE.AmbientLight('#80ecff', 1.55);
     const key = new THREE.PointLight('#bbfbff', 42, 18);
@@ -193,13 +196,17 @@ export default function CosmicCube({ signal }) {
 
       coreMaterial.color.lerp(color, 0.08);
       coreMaterial.emissive.lerp(color, 0.08);
-      coreMaterial.opacity = 0.56 + softSignal.confidence * 0.2 + squeeze * 0.08;
+      coreMaterial.opacity = 0.08 + softSignal.confidence * 0.08 + squeeze * 0.05;
       coreMaterial.emissiveIntensity = 0.88 + softSignal.confidence * 0.85 + squeeze * 0.45;
       skinMaterial.color.lerp(color, 0.08);
-      skinMaterial.opacity = 0.08 + softSignal.openness * 0.1 + squeeze * 0.12;
+      skinMaterial.opacity = 0.03 + softSignal.openness * 0.06 + squeeze * 0.04;
       glowMaterial.color.lerp(color, 0.08);
-      glowMaterial.opacity = 0.14 + softSignal.confidence * 0.1 + squeeze * 0.12;
+      glowMaterial.opacity = 0.08 + softSignal.confidence * 0.06 + squeeze * 0.08;
       ringMaterial.color.lerp(color, 0.08);
+      shardCloud.material.color.lerp(color, 0.08);
+      shardCloud.material.emissive.lerp(color, 0.08);
+      shardCloud.lineMaterial.color.lerp(color, 0.08);
+      updateShardCloud(shardCloud, elapsed, softSignal, spreadEnergy, gatherEnergy, motionEnergy);
 
       targetScale.set(
         scale * (1 + spreadEnergy * 0.14 + Math.abs(softSignal.yaw) * 0.08),
@@ -272,11 +279,15 @@ export default function CosmicCube({ signal }) {
       glowShell.geometry.dispose();
       rings.forEach((ring) => ring.geometry.dispose());
       particles.geometry.dispose();
+      shardCloud.geometry.dispose();
+      shardCloud.lineGeometry.dispose();
       coreMaterial.dispose();
       skinMaterial.dispose();
       glowMaterial.dispose();
       ringMaterial.dispose();
       particles.material.dispose();
+      shardCloud.material.dispose();
+      shardCloud.lineMaterial.dispose();
       renderer.dispose();
     };
   }, []);
@@ -359,4 +370,136 @@ function createParticles() {
       blending: THREE.AdditiveBlending,
     }),
   );
+}
+
+function createShardCloud() {
+  const count = 420;
+  const geometry = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+  const material = new THREE.MeshPhysicalMaterial({
+    color: '#7beeff',
+    roughness: 0.16,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.76,
+    transmission: 0.22,
+    emissive: '#19cfff',
+    emissiveIntensity: 1.35,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.24,
+  });
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+  const shards = Array.from({ length: count }, () => {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const radius = 0.25 + Math.pow(Math.random(), 0.62) * 1.2;
+    const normal = new THREE.Vector3(
+      Math.sin(phi) * Math.cos(theta),
+      Math.sin(phi) * Math.sin(theta),
+      Math.cos(phi),
+    );
+    const base = normal.clone().multiplyScalar(radius);
+    base.x *= 1.34;
+    base.y *= 0.82;
+    base.z *= 0.94;
+
+    return {
+      base,
+      normal,
+      phase: Math.random() * Math.PI * 2,
+      size: 0.55 + Math.random() * 1.65,
+      spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+      drift: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5),
+    };
+  });
+
+  const linePairs = Array.from({ length: 280 }, () => [
+    Math.floor(Math.random() * count),
+    Math.floor(Math.random() * count),
+  ]);
+  const lineGeometry = new THREE.BufferGeometry();
+  lineGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(linePairs.length * 6), 3));
+  const lineMaterial = new THREE.LineBasicMaterial({
+    color: '#b9ffff',
+    transparent: true,
+    opacity: 0.34,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+
+  return {
+    geometry,
+    material,
+    mesh,
+    shards,
+    positions: Array.from({ length: count }, () => new THREE.Vector3()),
+    lineGeometry,
+    lineMaterial,
+    lines,
+    linePairs,
+    matrix: new THREE.Matrix4(),
+    rotation: new THREE.Quaternion(),
+    scale: new THREE.Vector3(),
+  };
+}
+
+function updateShardCloud(cloud, elapsed, signal, spreadEnergy, gatherEnergy, motionEnergy) {
+  const expansion = 0.66 + spreadEnergy * 0.72 - gatherEnergy * 0.2;
+  const jitter = 0.08 + spreadEnergy * 0.32 + motionEnergy * 0.24;
+  const squeezeX = 1 + (1 - signal.openness) * 0.24;
+  const squeezeY = 1 - (1 - signal.openness) * 0.18;
+  const linePositions = cloud.lineGeometry.attributes.position.array;
+
+  cloud.mesh.rotation.x += signal.velocityY * 0.004;
+  cloud.mesh.rotation.y += signal.velocityX * 0.005;
+  cloud.lines.rotation.copy(cloud.mesh.rotation);
+  cloud.material.opacity = 0.58 + signal.confidence * 0.22 + spreadEnergy * 0.08;
+  cloud.material.emissiveIntensity = 0.95 + signal.confidence * 0.9 + spreadEnergy * 0.5 + motionEnergy * 0.35;
+  cloud.lineMaterial.opacity = 0.2 + signal.confidence * 0.2 + spreadEnergy * 0.22;
+
+  cloud.shards.forEach((shard, index) => {
+    const pulse =
+      Math.sin(elapsed * 2.2 + shard.phase) * 0.055 +
+      Math.sin(elapsed * 3.7 + shard.base.x * 2.1 + signal.roll * 2) * 0.045;
+    const smear = new THREE.Vector3(signal.velocityX, -signal.velocityY, signal.velocityZ).multiplyScalar(
+      0.18 + spreadEnergy * 0.16,
+    );
+    const target = shard.base
+      .clone()
+      .multiply(new THREE.Vector3(squeezeX, squeezeY, 1))
+      .multiplyScalar(expansion + pulse)
+      .addScaledVector(shard.normal, spreadEnergy * 0.42)
+      .addScaledVector(shard.drift, jitter)
+      .add(smear);
+
+    cloud.positions[index].lerp(target, 0.11 + spreadEnergy * 0.04);
+    cloud.rotation.setFromEuler(
+      new THREE.Euler(
+        elapsed * shard.spin.x * 0.8 + signal.pitch,
+        elapsed * shard.spin.y * 0.8 - signal.yaw,
+        elapsed * shard.spin.z * 0.8 - signal.roll,
+      ),
+    );
+    const shardScale = (0.55 + spreadEnergy * 0.45 - gatherEnergy * 0.16) * shard.size;
+    cloud.scale.set(shardScale * (0.9 + spreadEnergy * 0.5), shardScale * 0.62, shardScale * 0.72);
+    cloud.matrix.compose(cloud.positions[index], cloud.rotation, cloud.scale);
+    cloud.mesh.setMatrixAt(index, cloud.matrix);
+  });
+
+  cloud.linePairs.forEach(([a, b], index) => {
+    const start = cloud.positions[a];
+    const end = cloud.positions[b];
+    const offset = index * 6;
+    linePositions[offset] = start.x;
+    linePositions[offset + 1] = start.y;
+    linePositions[offset + 2] = start.z;
+    linePositions[offset + 3] = end.x;
+    linePositions[offset + 4] = end.y;
+    linePositions[offset + 5] = end.z;
+  });
+
+  cloud.mesh.instanceMatrix.needsUpdate = true;
+  cloud.lineGeometry.attributes.position.needsUpdate = true;
 }
