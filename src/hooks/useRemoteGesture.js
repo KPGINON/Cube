@@ -16,6 +16,9 @@ const emptyMetrics = {
   grab: 0,
   anchorX: 0,
   anchorY: 0,
+  pointX: 0,
+  pointY: 0,
+  pointZ: 0,
   confidence: 0,
 };
 

@@ -46,6 +46,9 @@ function App() {
       grab: activeMetrics.grab,
       anchorX: activeMetrics.anchorX,
       anchorY: activeMetrics.anchorY,
+      pointX: activeMetrics.pointX,
+      pointY: activeMetrics.pointY,
+      pointZ: activeMetrics.pointZ,
       confidence: activeMetrics.confidence,
     }),
     [activeGesture, activeMetrics],
@@ -53,7 +56,7 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="stage" aria-label="手势宇宙魔方交互区">
+      <section className="stage" aria-label="手势球体交互区">
         <CosmicCube signal={signal} />
 
         <div className="top-bar">
@@ -62,7 +65,7 @@ function App() {
               <ScanLine size={18} />
             </span>
             <div>
-              <h1>Gesture Cube</h1>
+              <h1>Gesture Sphere</h1>
               <p>Camera driven interaction base</p>
             </div>
           </div>

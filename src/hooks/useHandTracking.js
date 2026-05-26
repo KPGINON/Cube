@@ -20,6 +20,9 @@ const baseMetrics = {
   grab: 0,
   anchorX: 0,
   anchorY: 0,
+  pointX: 0,
+  pointY: 0,
+  pointZ: 0,
   confidence: 0,
 };
 
@@ -224,6 +227,9 @@ function getHandMetrics(hand, previousMetrics, previousTime, now) {
     grab: clamp(1 - pinchDistance * 1.45 + (1 - openness) * 0.35),
     anchorX: clamp((thumbIndexMid.x - 0.5) * 2, -1, 1),
     anchorY: clamp((thumbIndexMid.y - 0.5) * 2, -1, 1),
+    pointX: clamp((hand[8].x - 0.5) * 2, -1, 1),
+    pointY: clamp((hand[8].y - 0.5) * 2, -1, 1),
+    pointZ: clamp((hand[8].z - hand[0].z) / (palmSize * 1.2), -1, 1),
     confidence: clamp(1 - Math.abs(0.55 - openness) * 0.55),
   };
 }

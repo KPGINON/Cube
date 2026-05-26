@@ -27,6 +27,9 @@ const defaultSignal = {
   grab: 0,
   anchorX: 0,
   anchorY: 0,
+  pointX: 0,
+  pointY: 0,
+  pointZ: 0,
   confidence: 0,
 };
 
@@ -53,7 +56,7 @@ export default function CosmicCube({ signal }) {
     const fluidGroup = new THREE.Group();
     scene.add(fluidGroup);
 
-    const fluidGeometry = new THREE.BoxGeometry(2.32, 2.32, 2.32, 34, 34, 34);
+    const fluidGeometry = new THREE.SphereGeometry(1.62, 96, 64);
     const basePositions = fluidGeometry.attributes.position.array.slice();
 
     const coreMaterial = new THREE.MeshPhysicalMaterial({
@@ -163,21 +166,26 @@ export default function CosmicCube({ signal }) {
       softSignal.grab = THREE.MathUtils.lerp(softSignal.grab, current.grab ?? 0, 0.09);
       softSignal.anchorX = THREE.MathUtils.lerp(softSignal.anchorX, current.anchorX ?? softSignal.palmX, 0.055);
       softSignal.anchorY = THREE.MathUtils.lerp(softSignal.anchorY, current.anchorY ?? softSignal.palmY, 0.055);
+      softSignal.pointX = THREE.MathUtils.lerp(softSignal.pointX, current.pointX ?? softSignal.palmX, 0.08);
+      softSignal.pointY = THREE.MathUtils.lerp(softSignal.pointY, current.pointY ?? softSignal.palmY, 0.08);
+      softSignal.pointZ = THREE.MathUtils.lerp(softSignal.pointZ, current.pointZ ?? 0, 0.08);
       softSignal.confidence = THREE.MathUtils.lerp(softSignal.confidence, current.confidence, 0.065);
 
       const squeeze = 1 - softSignal.pinch;
+      const pointFollow = current.gesture === 'point' ? softSignal.confidence : 0;
       const breath = 0.5 + Math.sin(elapsed * 1.35) * 0.5;
-      const held = Math.max(softSignal.grab, squeeze * 0.9);
+      const spreadEnergy = Math.max(softSignal.openness, softSignal.spread * 0.92);
+      const gatherEnergy = Math.max(0, 1 - softSignal.openness, squeeze * 0.85);
+      const held = Math.max(softSignal.grab, pointFollow);
       const motionEnergy =
         Math.abs(softSignal.velocityX) + Math.abs(softSignal.velocityY) + Math.abs(softSignal.velocityZ);
       const scale =
-        0.78 +
-        softSignal.openness * 0.34 +
-        softSignal.spread * 0.18 +
-        squeeze * 0.18 +
+        0.66 +
+        spreadEnergy * 0.46 -
+        gatherEnergy * 0.18 +
         softSignal.palmZ * -0.12 +
         breath * 0.028;
-      const fluidity = 0.1 + softSignal.openness * 0.2 + squeeze * 0.18 + motionEnergy * 0.11;
+      const fluidity = 0.1 + spreadEnergy * 0.22 + squeeze * 0.08 + motionEnergy * 0.11;
 
       morphFluidGeometry(fluidGeometry, basePositions, elapsed, softSignal, fluidity, 1);
       morphFluidGeometry(fluidSkin.geometry, basePositions, elapsed + 0.18, softSignal, fluidity * 1.25, 1.012);
@@ -194,16 +202,19 @@ export default function CosmicCube({ signal }) {
       ringMaterial.color.lerp(color, 0.08);
 
       targetScale.set(
-        scale * (1 + squeeze * 0.1 + Math.abs(softSignal.yaw) * 0.08),
-        scale * (1 - squeeze * 0.08 + Math.abs(softSignal.pitch) * 0.05),
+        scale * (1 + spreadEnergy * 0.14 + Math.abs(softSignal.yaw) * 0.08),
+        scale * (1 + spreadEnergy * 0.1 + Math.abs(softSignal.pitch) * 0.05),
         scale * (1 + softSignal.palmZ * -0.08),
       );
       fluidGroup.scale.lerp(targetScale, 0.06);
 
+      const followX = THREE.MathUtils.lerp(softSignal.palmX, softSignal.pointX, pointFollow);
+      const followY = THREE.MathUtils.lerp(softSignal.palmY, softSignal.pointY, pointFollow);
+      const followZ = THREE.MathUtils.lerp(softSignal.palmZ, softSignal.pointZ, pointFollow * 0.6);
       targetPosition.set(
-        softSignal.palmX * 1.45 + softSignal.anchorX * held * 0.22,
-        -softSignal.palmY * 0.92 - softSignal.anchorY * held * 0.14,
-        softSignal.palmZ * 0.82,
+        followX * (1.45 + pointFollow * 0.55) + softSignal.anchorX * held * 0.16,
+        -followY * (0.92 + pointFollow * 0.36) - softSignal.anchorY * held * 0.1,
+        followZ * 0.82,
       );
       heldVelocity.addScaledVector(targetPosition.clone().sub(heldPosition), 0.055 + held * 0.035);
       heldVelocity.add(new THREE.Vector3(softSignal.velocityX, -softSignal.velocityY, softSignal.velocityZ).multiplyScalar(0.016));
@@ -231,7 +242,8 @@ export default function CosmicCube({ signal }) {
       glowShell.rotation.copy(fluidCore.rotation);
 
       rings.forEach((ring, index) => {
-        const ringBreath = 1 + Math.sin(elapsed * 1.6 + index) * 0.035 + squeeze * 0.09 + held * 0.04;
+        const ringBreath =
+          0.82 + spreadEnergy * 0.34 - gatherEnergy * 0.08 + Math.sin(elapsed * 1.6 + index) * 0.035;
         ring.scale.setScalar(ringBreath);
         ring.rotation.x += 0.0018 * (index + 1) + softSignal.openness * 0.004 + spinImpulse.x * 0.4;
         ring.rotation.y -= 0.0025 * (index + 1) + squeeze * 0.006 + spinImpulse.y * 0.4;
@@ -242,6 +254,7 @@ export default function CosmicCube({ signal }) {
       particles.rotation.y -= 0.001 + softSignal.openness * 0.0025 + Math.abs(spinImpulse.y) * 0.2;
       particles.rotation.x += softSignal.palmY * 0.001 + spinImpulse.x * 0.15;
       particles.position.copy(heldPosition).multiplyScalar(-0.12);
+      particles.scale.setScalar(0.78 + spreadEnergy * 0.48 - gatherEnergy * 0.1);
       particles.material.opacity = 0.2 + softSignal.confidence * 0.26 + squeeze * 0.14 + motionEnergy * 0.08;
 
       renderer.render(scene, camera);
@@ -275,22 +288,15 @@ function morphFluidGeometry(geometry, basePositions, elapsed, signal, fluidity, 
   const positions = geometry.attributes.position.array;
   const target = new THREE.Vector3();
   const normal = new THREE.Vector3();
+  const spreadEnergy = Math.max(signal.openness, signal.spread * 0.92);
+  const gatherEnergy = Math.max(0, 1 - signal.openness, (1 - signal.pinch) * 0.85);
 
   for (let i = 0; i < positions.length; i += 3) {
     const x = basePositions[i];
     const y = basePositions[i + 1];
     const z = basePositions[i + 2];
-    const maxAxis = Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) || 1;
-    const cubeBias = 0.72 + signal.openness * 0.12;
-    const sphereX = x / maxAxis;
-    const sphereY = y / maxAxis;
-    const sphereZ = z / maxAxis;
 
-    normal.set(
-      THREE.MathUtils.lerp(sphereX, x, cubeBias),
-      THREE.MathUtils.lerp(sphereY, y, cubeBias),
-      THREE.MathUtils.lerp(sphereZ, z, cubeBias),
-    );
+    normal.set(x, y, z);
     normal.normalize();
 
     const ripple =
@@ -311,7 +317,8 @@ function morphFluidGeometry(geometry, basePositions, elapsed, signal, fluidity, 
       );
     const directionalSmear =
       (normal.x * signal.velocityX - normal.y * signal.velocityY + normal.z * signal.velocityZ) * 0.13;
-    const displacement = (ripple * fluidity + slowPull - anchorPull * 0.34 + directionalSmear) * shellScale;
+    const handExpansion = spreadEnergy * 0.34 - gatherEnergy * 0.2;
+    const displacement = (handExpansion + ripple * fluidity + slowPull - anchorPull * 0.24 + directionalSmear) * shellScale;
 
     target.set(x, y, z).multiplyScalar(shellScale);
     target.addScaledVector(normal, displacement);
